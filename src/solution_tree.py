@@ -16,6 +16,7 @@ from pathlib import Path
 from functools import wraps
 
 from src.parser import (
+    Parser,
     Identity,
     Opt,
     Scope,
@@ -67,8 +68,6 @@ class Matcher(Protocol, Generic[Object_Type]):
 
     def match(self, value: Object_Type) -> bool: ...
 
-    def negate(self) -> "Matcher[Object_Type]": ...
-
     def __repr__(self) -> str:
         return "Matcher"
 
@@ -76,7 +75,7 @@ class Matcher(Protocol, Generic[Object_Type]):
 T = TypeVar("T")
 
 
-class ValueMatcher(Generic[T, Object_Type]):
+class ValueMatcher(Generic[T, Object_Type], Matcher[Object_Type]):
     def __init__(
         self, selector: Callable[[Object_Type], T], values: Iterable[T]
     ) -> None:
@@ -323,7 +322,7 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                         UnionExp(
                             Const(None), Type(str), Type(int), Type(float), Type(bool)
                         ),
-                        constructor=lambda values: Enumerated(*values),
+                        constructor=lambda values: Enumerated(values=values),
                     ),
                     "root": DictExp(
                         {
@@ -348,7 +347,7 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                                             scoped("number_type"),
                                         ),
                                         constructor=lambda inner_type: ListOf(
-                                            inner_type
+                                            cast(list[Parser], inner_type)[0]
                                         ),
                                     ),
                                 )
@@ -383,11 +382,11 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                             UnionExp(
                                 Identity(
                                     _type,  # Turns out Python does not create scope for anonymous functions
-                                    lambda x, s=selectors[name]: ValueMatcher(s, [x]),
+                                    cast(Callable[[Any], ValueMatcher], lambda x, s=selectors[name]: ValueMatcher(s, [x])),
                                 ),
                                 ListOf(
                                     _type,
-                                    lambda x, s=selectors[name]: ValueMatcher(s, x),
+                                    cast(Callable[[list[Any]], ValueMatcher], lambda x, s=selectors[name]: ValueMatcher(s, x)),
                                 ),
                             )
                         )
@@ -409,7 +408,7 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                         SET_CLAUSE: scoped("SetClause"),
                         ALSO_CLAUSE: Opt(
                             UnionExp(
-                                ListOf(scoped("Condition"), SwitchApplyFirst),
+                                ListOf(scoped("Condition"), lambda conditions: SwitchApplyFirst(cast(list[Condition], conditions))),
                                 scoped("SwitchAll"),
                                 scoped("SwitchFirst"),
                             )

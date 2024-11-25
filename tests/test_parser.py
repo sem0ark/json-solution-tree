@@ -24,7 +24,7 @@ class Box:
         self.data = data
 
     def __eq__(self, value: object) -> bool:
-        return self.data == value.data
+        return type(value) is Box and self.data == value.data
 
 
 class BoxA:
@@ -32,7 +32,7 @@ class BoxA:
         self.data = data
 
     def __eq__(self, value: object) -> bool:
-        return self.data == value.data
+        return type(value) is BoxA and self.data == value.data
 
 
 class BoxB:
@@ -40,7 +40,7 @@ class BoxB:
         self.data = data
 
     def __eq__(self, value: object) -> bool:
-        return self.data == value.data
+        return type(value) is BoxB and self.data == value.data
 
 
 @pytest.mark.parametrize(
@@ -623,8 +623,8 @@ def test_union_type_expression_parser_fails(value: Any, parser: Parser) -> None:
             DictExp(
                 {
                     "a": UnionExp(
-                        ListOf(Enumerated(1, 2, 3), Box),
-                        Enumerated(1, 2, 3, constructor=Box),
+                        ListOf(Enumerated([1, 2, 3]), Box),
+                        Enumerated([1, 2, 3], Box),
                     ),
                 }
             ),
@@ -632,7 +632,7 @@ def test_union_type_expression_parser_fails(value: Any, parser: Parser) -> None:
         ),
         pytest.param(
             {"a": None},
-            DictExp({"a": Enumerated(1, 2, 3, None, constructor=Box)}),
+            DictExp({"a": Enumerated([1, 2, 3, None], Box)}),
             {"a": Box(None)},
         ),
     ],
@@ -673,8 +673,8 @@ def test_dict_type_expression_parser(value: Any, parser: Parser, expected: Any) 
             DictExp(
                 {
                     "a": UnionExp(
-                        ListOf(Enumerated(1, 2, 3), Box),
-                        Enumerated(1, 2, 3, constructor=Box),
+                        ListOf(Enumerated([1, 2, 3]), Box),
+                        Enumerated([1, 2, 3], Box),
                     ),
                 }
             ),

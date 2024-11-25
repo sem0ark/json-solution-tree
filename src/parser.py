@@ -34,7 +34,7 @@ class Parser(ABC):
         """
 
     @abstractmethod
-    def is_matching(self, target, parse_blindly: bool) -> bool:
+    def is_matching(self, target) -> bool:
         """Checks whether some value is matching the specified structure."""
 
     @abstractmethod
@@ -51,7 +51,7 @@ class Parser(ABC):
 
 
 class Type(Parser):
-    def __init__(self, type_: Any, constructor: Callable[[Any], Any] = None) -> None:
+    def __init__(self, type_: Any, constructor: Optional[Callable[[Any], Any]] = None) -> None:
         self.type = type_
         self.constructor = constructor or (identity)
 
@@ -69,7 +69,7 @@ class Type(Parser):
 
 
 class Enumerated(Parser):
-    def __init__(self, *values: Any, constructor: Callable[[Any], Any] = None) -> None:
+    def __init__(self, values: list[Any], constructor: Optional[Callable[[Any], Any]] = None) -> None:
         self.values = set(values)
         self.types = {type(x).__qualname__ for x in values}
         self.constructor = constructor or (identity)
@@ -91,7 +91,7 @@ class Enumerated(Parser):
 
 
 class Const(Parser):
-    def __init__(self, value: Any, constructor: Callable[[Any], Any] = None) -> None:
+    def __init__(self, value: Any, constructor: Optional[Callable[[Any], Any]] = None) -> None:
         self.value = value
         self.constructor = constructor or (identity)
 
@@ -112,7 +112,7 @@ class DictOf(Parser):
     def __init__(
         self,
         matcher: Parser,
-        constructor: Callable[[dict], Any] = None,
+        constructor: Optional[Callable[[dict], Any]] = None,
         key_is_allowed: Optional[Callable[[str], bool]] = None,
     ) -> None:
         self.matcher = matcher
@@ -159,7 +159,7 @@ class DictOf(Parser):
 
 class ListOf(Parser):
     def __init__(
-        self, matcher: Parser, constructor: Callable[[list], Any] = None
+        self, matcher: Parser, constructor: Optional[Callable[[list], Any]] = None
     ) -> None:
         self.matcher = matcher
         self.constructor = constructor or (identity)
@@ -182,15 +182,25 @@ class ListOf(Parser):
         )
 
 
-class Opt(NamedTuple):
-    matcher: Parser
+class Opt(Parser):
+    def __init__(self, matcher: Parser) -> None:
+        self.matcher = matcher
+
+    def parse_value(self, target, parse_blindly=False) -> Any:
+        return self.matcher.parse_value(target, parse_blindly)
+
+    def is_matching(self, target) -> bool:
+        return self.matcher.is_matching(target)
+
+    def get_syntax_string(self, continue_: bool) -> str:
+        return self.matcher.get_syntax_string(continue_)
 
 
 class DictExp(Parser):
     def __init__(
         self,
         types_dict: dict[Any, Union[Parser, Opt]],
-        constructor: Callable[[dict], Any] = None,
+        constructor: Optional[Callable[[dict], Any]] = None,
     ) -> None:
         self.types_dict = types_dict
         self.constructor = constructor or (identity)
@@ -253,7 +263,7 @@ class DictExp(Parser):
 
 class Identity(Parser):
     def __init__(
-        self, matcher: Parser, constructor: Callable[[Any], Any] = None
+        self, matcher: Parser, constructor: Optional[Callable[[Any], Any]] = None
     ) -> None:
         self.matcher = matcher
         self.constructor = constructor or (identity)
@@ -273,7 +283,7 @@ class Identity(Parser):
 
 class UnionExp(Parser):
     def __init__(
-        self, *matchers: Parser, constructor: Callable[[Any], Any] = None
+        self, *matchers: Parser, constructor: Optional[Callable[[Any], Any]] = None
     ) -> None:
         self.matchers = matchers
         self.constructor = constructor or (identity)
@@ -294,7 +304,7 @@ class UnionExp(Parser):
 
 class Scoped(Parser):
     def __init__(
-        self, scope: "Scope", name: str, constructor: Callable[[Any], Any] = None
+        self, scope: "Scope", name: str, constructor: Optional[Callable[[Any], Any]] = None
     ) -> None:
         self.scope = scope
         self.name = name
@@ -309,7 +319,7 @@ class Scoped(Parser):
 
         return (
             f"{self.scope.scope_name}::{self.name} = "
-            + self.scope.get_scoped_parser(self.name).get_syntax_string()
+            + self.scope.get_scoped_parser(self.name).get_syntax_string(False)
         )
 
     def parse_value(self, target: Any, parse_blindly=False) -> Any:
@@ -321,18 +331,12 @@ class Scoped(Parser):
         )
 
 
-class ScopeAssembler(Protocol):
-    def __call__(
-        self, name: str, constructor: Callable[[Any], Any] = None, /
-    ) -> dict: ...
-
-
 class Scope:
-    def __init__(self, scope_name: str, *, parser_assembler: ScopeAssembler) -> None:
+    def __init__(self, scope_name: str, *, parser_assembler: Callable[[Callable[[str], Parser]], dict[str, Parser]]) -> None:
         self.scope_name = scope_name
-        self.types_dict = parser_assembler(partial(Scoped, self))
+        self.types_dict = parser_assembler(lambda name: Scoped(self, name))
 
-    def get_scoped_parser(self, name: str) -> Scoped:
+    def get_scoped_parser(self, name: str) -> Parser:
         if name not in self.types_dict:
             raise ValueError(
                 f"Scoped Parser construction failed, {self.scope_name}::{name} does not exist."
