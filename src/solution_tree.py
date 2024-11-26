@@ -1,3 +1,4 @@
+from pprint import pformat
 from typing import (
     Any,
     Callable,
@@ -61,21 +62,18 @@ Object_Type = TypeVar("Object_Type")
 Output_Type = TypeVar("Output_Type", bound=dict[str, Any])
 
 
-class Matcher(Protocol, Generic[Object_Type]):
-    def intersect(
-        self, other: "Matcher[Object_Type]"
-    ) -> Optional["Matcher[Object_Type]"]: ...
-
+class Matcher(Protocol):
     def match(self, value: Object_Type) -> bool: ...
 
     def __repr__(self) -> str:
         return "Matcher"
 
+    def intersect(self, other: "Matcher") -> Optional["Matcher"]:...
 
 T = TypeVar("T")
 
 
-class ValueMatcher(Generic[T, Object_Type], Matcher[Object_Type]):
+class ValueMatcher(Generic[T, Object_Type]):
     def __init__(
         self, selector: Callable[[Object_Type], T], values: Iterable[T]
     ) -> None:
@@ -91,7 +89,7 @@ class ValueMatcher(Generic[T, Object_Type], Matcher[Object_Type]):
         )
 
     def __repr__(self) -> str:
-        return f"ValueMatcher({self._values} {str(self._selector)[80:]})"
+        return f"ValueMatcher({self._values})"
 
     @property
     def is_empty(self) -> bool:
@@ -100,7 +98,7 @@ class ValueMatcher(Generic[T, Object_Type], Matcher[Object_Type]):
     def match(self, value: Object_Type) -> bool:
         return self._selector(value) in self._values
 
-    def intersect(self, other: Matcher[Object_Type]) -> Optional[Matcher[Object_Type]]:
+    def intersect(self, other: Matcher) -> Optional[Matcher]:
         if type(other) is not ValueMatcher:
             return None
 
@@ -109,13 +107,13 @@ class ValueMatcher(Generic[T, Object_Type], Matcher[Object_Type]):
         if new_matcher.is_empty:
             return None
 
-        return new_matcher
+        return cast(Matcher, new_matcher)
 
 
 class Query(Generic[Object_Type]):
     def __init__(
         self,
-        matchers: dict[str, Matcher[Object_Type]],
+        matchers: dict[str, Matcher],
         selectors: dict[str, Callable[[Object_Type], Any]],
     ) -> None:
         self.matchers = matchers
@@ -135,7 +133,14 @@ class Query(Generic[Object_Type]):
         return True
 
     def __repr__(self) -> str:
-        return f"Query {self.matchers}"
+        return f"Query {pformat(self.matchers)}"
+
+    def match(self, value: Object_Type) -> bool:
+        for matcher in self.matchers.values():
+            if not matcher.match(value):
+                return False
+
+        return True
 
     def intersect(self, other: "Query[Object_Type]") -> Optional["Query[Object_Type]"]:
         matchers = {**self.matchers}
@@ -149,13 +154,6 @@ class Query(Generic[Object_Type]):
             else:
                 matchers[key] = matcher
         return Query(matchers, self.selectors)
-
-    def match(self, value: Object_Type) -> bool:
-        for matcher in self.matchers.values():
-            if not matcher.match(value):
-                return False
-
-        return True
 
 
 class Setter(Generic[Output_Type]):
@@ -191,7 +189,7 @@ class Condition(Generic[Object_Type, Output_Type]):
         self.annotation = annotation
 
     def __repr__(self) -> str:
-        return f"Condition {self.annotation or ''} [{self.query}, {self.setter}]"
+        return f"Condition({self.annotation or ''}) [{self.query}, {self.setter}]"
 
     def match(self, value: Object_Type, output: Output_Type) -> bool:
         if self.query.match(value):
@@ -231,6 +229,11 @@ class SwitchApplyAll(Generic[Object_Type, Output_Type]):
         return result
 
 
+class ReachabilityException(ValueError): ...
+
+class SetterFullnessException(ValueError): ...
+
+
 class SolutionTree(Generic[Object_Type, Output_Type]):
     def __init__(
         self,
@@ -257,12 +260,31 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
         check_json_path(json_config_path)
         return SolutionTree(json.load(json_config_path.open()), selectors)
 
+    def check_reachability(self):
+        for condition in self.tree.conditions:
+            self.check_condition_reachability(condition)
+
+    def check_condition_reachability(self, condition: Condition, prev_query: Optional[Query] = None, prev_setter_values: Optional[set[str]] = None):
+        query_intersection = prev_query.intersect(condition.query) if prev_query else condition.query
+
+        setter_values = prev_setter_values
+        if condition.setter:
+            setter_values = set(condition.setter.update_dict.keys())
+            setter_values = prev_setter_values & setter_values if prev_setter_values is not None else setter_values
+
+        if query_intersection is None:
+            raise ReachabilityException(f"{condition} does is not reachable.")
+
+        if condition.subconditions:
+            for inner_condition in condition.subconditions.conditions:
+                self.check_condition_reachability(inner_condition, query_intersection, setter_values)
+
     def parse(
         self,
         json_config: dict[str, Any],
         selectors: dict[str, Callable[[Object_Type], Any]],
         parse_blindly=False,
-    ):
+    ) -> Union[SwitchApplyFirst, SwitchApplyAll]:
         WHEN_CLAUSE = "when"
         ALSO_CLAUSE = "also"
         SET_CLAUSE = "set"
