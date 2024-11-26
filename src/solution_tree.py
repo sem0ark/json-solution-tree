@@ -191,7 +191,7 @@ class Condition(Generic[Object_Type, Output_Type]):
         self.annotation = annotation
 
     def __repr__(self) -> str:
-        return f"Condition {self.annotation or ""} [{self.query}, {self.setter}]"
+        return f"Condition {self.annotation or ''} [{self.query}, {self.setter}]"
 
     def match(self, value: Object_Type, output: Output_Type) -> bool:
         if self.query.match(value):
@@ -324,6 +324,17 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                         ),
                         constructor=lambda values: Enumerated(values=values),
                     ),
+                    "array": DictExp(
+                        {
+                            "list of": UnionExp(
+                                scoped("bool_type"),
+                                scoped("str_type"),
+                                scoped("number_type"),
+                                scoped("enum"),
+                            )
+                        },
+                        constructor=lambda d: ListOf(d["list of"]),
+                    ),
                     "root": DictExp(
                         {
                             "selectors": DictOf(
@@ -340,16 +351,7 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                                     scoped("str_type"),
                                     scoped("number_type"),
                                     scoped("enum"),
-                                    ListOf(
-                                        UnionExp(
-                                            scoped("bool_type"),
-                                            scoped("str_type"),
-                                            scoped("number_type"),
-                                        ),
-                                        constructor=lambda inner_type: ListOf(
-                                            cast(list[Parser], inner_type)[0]
-                                        ),
-                                    ),
+                                    scoped("array"),
                                 )
                             ),
                         },
@@ -382,11 +384,19 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                             UnionExp(
                                 Identity(
                                     _type,  # Turns out Python does not create scope for anonymous functions
-                                    cast(Callable[[Any], ValueMatcher], lambda x, s=selectors[name]: ValueMatcher(s, [x])),
+                                    cast(
+                                        Callable[[Any], ValueMatcher],
+                                        lambda x, s=selectors[name]: ValueMatcher(
+                                            s, [x]
+                                        ),
+                                    ),
                                 ),
                                 ListOf(
                                     _type,
-                                    cast(Callable[[list[Any]], ValueMatcher], lambda x, s=selectors[name]: ValueMatcher(s, x)),
+                                    cast(
+                                        Callable[[list[Any]], ValueMatcher],
+                                        lambda x, s=selectors[name]: ValueMatcher(s, x),
+                                    ),
                                 ),
                             )
                         )
@@ -408,7 +418,12 @@ class SolutionTree(Generic[Object_Type, Output_Type]):
                         SET_CLAUSE: scoped("SetClause"),
                         ALSO_CLAUSE: Opt(
                             UnionExp(
-                                ListOf(scoped("Condition"), lambda conditions: SwitchApplyFirst(cast(list[Condition], conditions))),
+                                ListOf(
+                                    scoped("Condition"),
+                                    lambda conditions: SwitchApplyFirst(
+                                        cast(list[Condition], conditions)
+                                    ),
+                                ),
                                 scoped("SwitchAll"),
                                 scoped("SwitchFirst"),
                             )

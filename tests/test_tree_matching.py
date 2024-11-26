@@ -502,3 +502,85 @@ def test_tree_matcher_first_match_multi_values_2(
     )
 
     assert tree.match_update(value_object) == output
+
+
+@dataclass
+class Apple2:
+    family: str
+    size: str
+
+
+@pytest.mark.parametrize(
+    ["value_object", "output"],
+    [
+        pytest.param(
+            Apple2("Granny Green", "small"),
+            {
+                "tags": ["green"],
+            },
+        ),
+        pytest.param(
+            Apple2("Juicy Red", "small"),
+            {
+                "tags": ["red", "reddish-yellow"],
+            },
+        ),
+        pytest.param(
+            Apple2("Big Red", "small"),
+            {
+                "tags": ["red"],
+            },
+        ),
+    ],
+)
+def test_tree_matcher_first_match_multi_outputs(
+    value_object: Apple, output: dict[str, Any]
+) -> None:
+    tree: SolutionTree[Apple, dict[str, bool]] = SolutionTree(
+        {
+            "schema": {
+                "selectors": {
+                    "family": [
+                        "Granny Green",
+                        "Juicy Red",
+                        "Big Red",
+                    ],
+                    "size": [
+                        "small",
+                        "big",
+                        "extra",
+                        "ex-extra",
+                    ],
+                },
+                "output": {
+                    "tags": {"list of": "str"},
+                },
+            },
+            "apply first": [
+                {
+                    "when": {
+                        "family": "Granny Green",
+                    },
+                    "set": {"tags": ["green"]},
+                },
+                {
+                    "when": {
+                        "family": "Juicy Red",
+                    },
+                    "set": {"tags": ["red", "reddish-yellow"]},
+                },
+                {
+                    "when": {
+                        "family": "Big Red",
+                    },
+                    "set": {"tags": ["red"]},
+                },
+            ],
+        },
+        {
+            "family": lambda apple: apple.family,
+            "size": lambda apple: apple.size,
+        },
+    )
+
+    assert tree.match_update(value_object) == output
