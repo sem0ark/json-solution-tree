@@ -478,7 +478,7 @@ def test_tree_matcher_first_match_multi_values_2(
                         {
                             "when": {
                                 "family": "Big Red",
-                                "color": "red",
+                                "color": "re",
                                 "size": ["big", "extra"],
                             },
                             "set": {
